@@ -79,5 +79,109 @@ int main() {
     closesocket(sock);
     WSACleanup();
 
+    cout<< "thank you"<<
+    #include <iostream>
+#include <cstring>
+#include <chrono>
+#include <thread>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/in.h>
+#include <fcntl.h>
+#include <netdb.h>
+
+// ICMP Header Structure
+struct icmp_packet {
+    struct icmphdr hdr;
+    char data[64]; // You can increase the size if needed
+};
+
+// Function to calculate the checksum
+unsigned short checksum(void *b, int len) {
+    unsigned short *buf = (unsigned short*)b;
+    unsigned int sum = 0;
+    unsigned short result;
+
+    for (sum = 0; len > 1; len -= 2)
+        sum += *buf++;
+    if (len == 1)
+        sum += *(unsigned char*)buf;
+
+    sum = (sum >> 16) + (sum & 0xFFFF);
+    sum += (sum >> 16);
+    result = ~sum;
+    return result;
+}
+
+// Function to create an ICMP Echo Request packet
+void create_icmp_packet(struct icmp_packet *pkt, int seq_num) {
+    pkt->hdr.type = ICMP_ECHO;
+    pkt->hdr.code = 0;
+    pkt->hdr.un.echo.id = getpid();
+    pkt->hdr.un.echo.sequence = seq_num;
+    pkt->hdr.checksum = 0;
+    std::memset(pkt->data, 0x42, sizeof(pkt->data));  // Fill the packet with some data (e.g., 'B')
+
+    pkt->hdr.checksum = checksum(&pkt->hdr, sizeof(struct icmphdr) + sizeof(pkt->data));
+}
+
+// Function to send a ping request and receive the response
+void ping(const char* ip_address) {
+    int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (sockfd < 0) {
+        std::cerr << "Error: Unable to open socket" << std::endl;
+        return;
+    }
+
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = 0;
+    addr.sin_addr.s_addr = inet_addr(ip_address);
+
+    struct icmp_packet pkt;
+    int seq_num = 1;
+
+    // Send 4 ping requests
+    for (int i = 0; i < 4; ++i) {
+        create_icmp_packet(&pkt, seq_num);
+
+        auto start = std::chrono::high_resolution_clock::now();
+        if (sendto(sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+            std::cerr << "Error: Unable to send packet" << std::endl;
+        } else {
+            char buffer[1024];
+            socklen_t addr_len = sizeof(addr);
+
+            if (recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr*)&addr, &addr_len) < 0) {
+                std::cerr << "Error: No response received" << std::endl;
+            } else {
+                auto end = std::chrono::high_resolution_clock::now();
+                std::chrono::duration<double> duration = end - start;
+                std::cout << "Reply from " << ip_address << ": time=" << duration.count() * 1000 << " ms" << std::endl;
+            }
+        }
+
+        // Wait for a second before sending the next ping
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        seq_num++;
+    }
+
+    close(sockfd);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <IP Address>" << std::endl;
+        return 1;
+    }
+
+    ping(argv[1]);
+
+    return 0;
+}
+
+
     return 0;
 }
